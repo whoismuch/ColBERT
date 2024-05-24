@@ -66,6 +66,9 @@ class LazyBatcher():
 
     def collate(self, queries, passages, scores):
         assert len(queries) == self.bsize
+        print(len(passages))
+        print(self.nway)
+        print(self.bsize)
         assert len(passages) == self.nway * self.bsize
 
         return self.tensorize_triples(queries, passages, scores, self.bsize // self.accumsteps, self.nway)
