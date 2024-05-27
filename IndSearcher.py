@@ -18,13 +18,11 @@ class ColBERT:
 
 
 def index_documents_with_faiss(documents, colbert_model):
-    # Получение эмбеддингов для всех документов
     all_embeddings = []
     for doc_text in documents:
         embeddings = colbert_model.encode([doc_text]).squeeze(0)
         all_embeddings.append(embeddings.mean(dim=0).numpy())  # Средний вектор документа
 
-    # Создание FAISS индекса
     d = all_embeddings[0].shape[0]  # Размерность эмбеддингов
     index = faiss.IndexFlatL2(d)
     index.add(np.array(all_embeddings))
@@ -32,22 +30,13 @@ def index_documents_with_faiss(documents, colbert_model):
     return index, np.array(all_embeddings)
 
 
-def search_with_faiss(query, colbert_model, faiss_index, document_embeddings, top_k=2):
+def search_with_faiss(query, colbert_model, faiss_index, top_k=2):
     query_embedding = colbert_model.encode([query]).squeeze(0).mean(dim=0).numpy().reshape(1, -1)
-
-    # Поиск топ-k наиболее похожих документов
     distances, indices = faiss_index.search(query_embedding, top_k)
-
     return indices[0], distances[0]
 
 
-# Пример использования:
-documents = ["This is a test document.", "Another document for testing."]
-query = "test document"
-
-colbert_model = ColBERT()
-faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
-top_k_indices, top_k_distances = search_with_faiss(query, colbert_model, faiss_index, document_embeddings, top_k=2)
-
-print("Top-k document indices:", top_k_indices)
-print("Top-k document distances:", top_k_distances)
+def get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=2):
+    top_k_indices, top_k_distances = search_with_faiss(query, colbert_model, faiss_index, top_k)
+    top_k_docs = [(documents[idx], dist) for idx, dist in zip(top_k_indices, top_k_distances)]
+    return top_k_docs
