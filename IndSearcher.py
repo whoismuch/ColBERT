@@ -87,8 +87,9 @@ def load_documents_from_tsv(file_path):
 def createParser ():
     parser = argparse.ArgumentParser()
     parser.add_argument ('--collection_path', default='./collection5mb.tsv')
-
+    parser.add_argument ('--checkpoint_path', default='./model')
     return parser
+
 if __name__ == "__main__":
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
     parser = createParser()
