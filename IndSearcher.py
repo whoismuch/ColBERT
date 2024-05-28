@@ -65,7 +65,7 @@ class IndexerRetriever:
 
         max_similarities = []
         for query_emb in query_embeddings:
-            similarities = torch.matmul(doc_embed, query_emb.unsqueeze(1))
+            similarities = torch.matmul(torch.tensor(doc_embed).float(), query_emb.unsqueeze(1))
             max_similarity = similarities.max().item()
             max_similarities.append(max_similarity)
 
