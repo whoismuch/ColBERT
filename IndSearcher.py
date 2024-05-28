@@ -10,10 +10,11 @@ import sys
 import argparse
 
 
-class ColBERT:
-    def __init__(self, model_name='bert-base-uncased'):
+class IndexerRetriever:
+    def __init__(self, documents, model_name='bert-base-uncased'):
         self.model = BertModel.from_pretrained(model_name)
         self.tokenizer = BertTokenizer.from_pretrained(model_name)
+        self.documents = documents
 
     def encode(self, texts):
         inputs = self.tokenizer(texts, return_tensors='pt', padding=True, truncation=True)
@@ -23,67 +24,69 @@ class ColBERT:
         return embeddings
 
 
-def index_documents_with_faiss(documents, colbert_model, nlist=2, sample_ratio=0.3, m=8):
-    all_embeddings = []
-    for doc_text in documents:
-        embeddings = colbert_model.encode([doc_text]).squeeze(0)
-        all_embeddings.append(embeddings.mean(dim=0).numpy())  # Средний вектор документа
+    def index_documents_with_faiss(self, nlist=2, sample_ratio=0.3, m=8):
+        all_embeddings = []
+        for doc_text in self.documents:
+            embeddings = self.encode([doc_text]).squeeze(0)
+            all_embeddings.append(embeddings.mean(dim=0).numpy())  # Средний вектор документа
 
-    # Случайная выборка подмножества данных для обучения
-    num_samples = max(1, int(len(all_embeddings) * sample_ratio))
-    sampled_embeddings = random.sample(all_embeddings, num_samples)
+        # Случайная выборка подмножества данных для обучения
+        num_samples = max(1, int(len(all_embeddings) * sample_ratio))
+        sampled_embeddings = random.sample(all_embeddings, num_samples)
 
-    d = all_embeddings[0].shape[0]  # Размерность эмбеддингов
+        d = all_embeddings[0].shape[0]  # Размерность эмбеддингов
 
-    quantizer = faiss.IndexFlatL2(d)  # Используется для кластеризации
-    # index = faiss.IndexIVFPQ(quantizer, d, nlist, m, 8)  # nlist - количество кластеров, m - количество подпространств
-    index = faiss.IndexIVFFlat(quantizer, d, nlist)  # nlist - количество кластеров, m - количество подпространств
+        quantizer = faiss.IndexFlatL2(d)  # Используется для кластеризации
+        # index = faiss.IndexIVFPQ(quantizer, d, nlist, m, 8)  # nlist - количество кластеров, m - количество подпространств
+        index = faiss.IndexIVFFlat(quantizer, d, nlist)  # nlist - количество кластеров, m - количество подпространств
 
-    index.train(np.array(sampled_embeddings))  # Обучение кластеризатора на подмножестве данных
-    index.add(np.array(all_embeddings))  # Добавление всех данных в индекс
+        index.train(np.array(sampled_embeddings))  # Обучение кластеризатора на подмножестве данных
+        index.add(np.array(all_embeddings))  # Добавление всех данных в индекс
 
-    return index, np.array(all_embeddings)
-
-
-def search_with_faiss(query, colbert_model, faiss_index, top_k=2):
-    query_embedding = colbert_model.encode([query]).squeeze(0).mean(dim=0).numpy().reshape(1, -1)
-    distances, indices = faiss_index.search(query_embedding, top_k)
-    return indices[0], distances[0]
+        self.faiss_index = index
+        self.doc_embeddings = np.array(all_embeddings)
+        return index, np.array(all_embeddings)
 
 
-def get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=2):
-    top_k_indices, top_k_distances = search_with_faiss(query, colbert_model, faiss_index, top_k)
-    top_k_docs = [(documents[idx], dist) for idx, dist in zip(top_k_indices, top_k_distances)]
-    return top_k_docs
+    def search_with_faiss(self, query, top_k=2):
+        query_embedding = self.encode([query]).squeeze(0).mean(dim=0).numpy().reshape(1, -1)
+        distances, indices = self.faiss_index.search(query_embedding, top_k)
+        return indices[0], distances[0]
 
 
-def score_with_colbert(query, document, colbert_model):
-    # Кодируем запрос и документ
-    query_embeddings = colbert_model.encode([query]).squeeze(0)
-    doc_embeddings = colbert_model.encode([document]).squeeze(0)
+    def get_top_k_documents(self, query, top_k=2):
+        top_k_indices, top_k_distances = self.search_with_faiss(query, top_k)
+        top_k_docs = [(self.documents[idx], dist) for idx, dist in zip(top_k_indices, top_k_distances)]
+        top_k_embeds_indices = [(self.doc_embeddings[idx], idx) for idx in top_k_indices]
+        return top_k_docs, top_k_embeds_indices
 
-    # Рассчитываем косинусное сходство между каждым токеном в запросе и каждом токеном в документе
-    similarity_matrix = cosine_similarity(query_embeddings.unsqueeze(1), doc_embeddings.unsqueeze(0))
+    def score_with_colbert(self, query, doc_embed):
+        query_embeddings = self.model.encode([query]).squeeze(0)
 
-    # Суммируем максимальные значения для каждого токена в запросе
-    scores = similarity_matrix.max(dim=1).values.sum().item()
+        max_similarities = []
+        for query_emb in query_embeddings:
+            similarities = torch.matmul(doc_embed, query_emb.unsqueeze(1))
+            max_similarity = similarities.max().item()
+            max_similarities.append(max_similarity)
 
-    return scores
+        score = sum(max_similarities)
+
+        return score
 
 
-def rerank_documents_with_colbert(query, documents, colbert_model):
-    # Скоринг документов
-    scored_documents = [(doc, score_with_colbert(query, doc, colbert_model)) for doc in documents]
-    # Сортировка документов по убыванию скорингов
-    scored_documents = sorted(scored_documents, key=lambda x: x[1], reverse=True)
+    def rerank_documents_with_colbert(self, query, doc_embeds_indices):
+        # Скоринг документов
+        scored_documents = [(self.documents[idx], self.score_with_colbert(query, doc_embed)) for doc_embed, idx in doc_embeds_indices]
+        # Сортировка документов по убыванию скорингов
+        scored_documents = sorted(scored_documents, key=lambda x: x[1], reverse=True)
 
-    return scored_documents
+        return scored_documents
 
 
 def load_documents_from_tsv(file_path):
-    df = pd.read_csv(file_path, sep='\t', header=None)
-    documents = df[1].tolist()  # Второй столбец содержит тексты документов
-    return documents
+        df = pd.read_csv(file_path, sep='\t', header=None)
+        documents = df[1].tolist()  # Второй столбец содержит тексты документов
+        return documents
 
 def createParser ():
     parser = argparse.ArgumentParser()
