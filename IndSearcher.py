@@ -68,6 +68,9 @@ class IndexerRetriever:
         # Рассчитываем косинусное сходство между каждым токеном в запросе и каждом токеном в документе
         similarity_matrix = cosine_similarity(query_embeddings.unsqueeze(1), torch.tensor(doc_embed).float().unsqueeze(0))
 
+        print(similarity_matrix)
+        print('AAAAAAAAA')
+
         # Суммируем максимальные значения для каждого токена в запросе
         score = similarity_matrix.max(dim=1).values.sum().item()
 
