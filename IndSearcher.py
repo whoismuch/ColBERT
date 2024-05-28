@@ -62,6 +62,8 @@ class IndexerRetriever:
 
     def score_with_colbert(self, query, doc_embed):
         query_embeddings = self.encode([query]).squeeze(0)
+        print(query_embeddings)
+        print('AAAAAAAAA')
 
         # Рассчитываем косинусное сходство между каждым токеном в запросе и каждом токеном в документе
         similarity_matrix = cosine_similarity(query_embeddings.unsqueeze(1), torch.tensor(doc_embed).float().unsqueeze(0))
@@ -75,8 +77,13 @@ class IndexerRetriever:
     def rerank_documents_with_colbert(self, query, doc_embeds_indices):
         # Скоринг документов
         scored_documents = [(self.documents[idx], self.score_with_colbert(query, doc_embed)) for doc_embed, idx in doc_embeds_indices]
+        print(scored_documents)
+        print('AAAAAAAAA')
+
         # Сортировка документов по убыванию скорингов
         scored_documents = sorted(scored_documents, key=lambda x: x[1], reverse=True)
+        print(scored_documents)
+        print('AAAAAAAAA')
 
         return scored_documents
 
@@ -102,7 +109,7 @@ if __name__ == "__main__":
 
     indRetriever = IndexerRetriever(documents, model_name='./model')
 
-    faiss_index, document_embeddings = indRetriever.index_documents_with_faiss()
+    # faiss_index, document_embeddings = indRetriever.index_documents_with_faiss()
 
     query = "what is the Manhattan Project"
     top_k_embeds_indices = indRetriever.get_top_k_documents(query, top_k=10)
