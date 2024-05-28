@@ -85,7 +85,7 @@ class IndexerRetriever:
             print('пык')
             print(self.encode([self.documents[idx]]).squeeze(0))
             print('мык')
-            print(doc_embed)
+            print(torch.tensor(doc_embed).float().unsqueeze(0))
 
         print(scored_documents)
         print('AAAAAAAAA')
