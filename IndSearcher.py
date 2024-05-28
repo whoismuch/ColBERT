@@ -23,7 +23,7 @@ class ColBERT:
         return embeddings
 
 
-def index_documents_with_faiss(documents, colbert_model, nlist=100, sample_ratio=0.1, m=8):
+def index_documents_with_faiss(documents, colbert_model, nlist=2, sample_ratio=0.3, m=8):
     all_embeddings = []
     for doc_text in documents:
         embeddings = colbert_model.encode([doc_text]).squeeze(0)
@@ -36,7 +36,8 @@ def index_documents_with_faiss(documents, colbert_model, nlist=100, sample_ratio
     d = all_embeddings[0].shape[0]  # Размерность эмбеддингов
 
     quantizer = faiss.IndexFlatL2(d)  # Используется для кластеризации
-    index = faiss.IndexIVFPQ(quantizer, d, nlist, m, 8)  # nlist - количество кластеров, m - количество подпространств
+    # index = faiss.IndexIVFPQ(quantizer, d, nlist, m, 8)  # nlist - количество кластеров, m - количество подпространств
+    index = faiss.IndexIVFFlat(quantizer, d, nlist)  # nlist - количество кластеров, m - количество подпространств
 
     index.train(np.array(sampled_embeddings))  # Обучение кластеризатора на подмножестве данных
     index.add(np.array(all_embeddings))  # Добавление всех данных в индекс
@@ -95,11 +96,13 @@ if __name__ == "__main__":
     parser = createParser()
     namespace = parser.parse_args(sys.argv[1:])
     collection = namespace.collection_path
-    documents = load_documents_from_tsv(collection)
+
+    documents = load_documents_from_tsv('collection5mb.tsv')
     colbert_model = ColBERT(model_name=namespace.checkpoint_path)
     faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
+
     query = "test document"
-    preselected_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=10)
+    preselected_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=5)
 
     # Извлечение текстов документов для точного скоринга
     preselected_texts = [doc for doc, _ in preselected_docs]
