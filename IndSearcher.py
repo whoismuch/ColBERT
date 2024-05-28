@@ -61,7 +61,7 @@ class IndexerRetriever:
         return top_k_docs, top_k_embeds_indices
 
     def score_with_colbert(self, query, doc_embed):
-        query_embeddings = self.model.encode([query]).squeeze(0)
+        query_embeddings = self.encode([query]).squeeze(0)
 
         max_similarities = []
         for query_emb in query_embeddings:
@@ -100,17 +100,25 @@ if __name__ == "__main__":
     namespace = parser.parse_args(sys.argv[1:])
     collection = namespace.collection_path
 
-    documents = load_documents_from_tsv('collection5mb.tsv')
-    colbert_model = ColBERT(model_name=namespace.checkpoint_path)
-    faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
+    documents = load_documents_from_tsv('./collection50lines.tsv')
 
-    query = "test document"
-    preselected_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=5)
+    indRetriever = IndexerRetriever(documents, model_name='./model')
 
-    # Извлечение текстов документов для точного скоринга
-    preselected_texts = [doc for doc, _ in preselected_docs]
+    faiss_index, document_embeddings = indRetriever.index_documents_with_faiss()
 
-    reranked_docs = rerank_documents_with_colbert(query, preselected_texts, colbert_model)
-
-    for doc, distance in reranked_docs:
-        print(f"Document: {doc} \nDistance: {distance}\n")
+    query = "what is the Manhattan Project"
+    top_k_embeds_indices = indRetriever.get_top_k_documents(query, top_k=10)
+    # documents = load_documents_from_tsv('collection5mb.tsv')
+    # colbert_model = ColBERT(model_name=namespace.checkpoint_path)
+    # faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
+    #
+    # query = "test document"
+    # preselected_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=5)
+    #
+    # # Извлечение текстов документов для точного скоринга
+    # preselected_texts = [doc for doc, _ in preselected_docs]
+    #
+    # reranked_docs = rerank_documents_with_colbert(query, preselected_texts, colbert_model)
+    #
+    # for doc, distance in reranked_docs:
+    #     print(f"Document: {doc} \nDistance: {distance}\n")
