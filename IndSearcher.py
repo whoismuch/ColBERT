@@ -96,7 +96,7 @@ if __name__ == "__main__":
     namespace = parser.parse_args(sys.argv[1:])
     collection = namespace.collection_path
     documents = load_documents_from_tsv(collection)
-    colbert_model = ColBERT(model_name='./model')
+    colbert_model = ColBERT(model_name=namespace.checkpoint_path)
     faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
     query = "test document"
     preselected_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=10)
