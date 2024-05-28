@@ -26,8 +26,10 @@ class IndexerRetriever:
 
     def index_documents_with_faiss(self, nlist=2, sample_ratio=0.3, m=8):
         all_embeddings = []
+        doc_embeds = []
         for doc_text in self.documents:
             embeddings = self.encode([doc_text]).squeeze(0)
+            doc_embeds.append(embeddings)
             all_embeddings.append(embeddings.mean(dim=0).numpy())  # Средний вектор документа
 
         # Случайная выборка подмножества данных для обучения
@@ -44,7 +46,7 @@ class IndexerRetriever:
         index.add(np.array(all_embeddings))  # Добавление всех данных в индекс
 
         self.faiss_index = index
-        self.doc_embeddings = np.array(all_embeddings)
+        self.doc_embeddings = doc_embeds
         return index, np.array(all_embeddings)
 
 
@@ -62,14 +64,9 @@ class IndexerRetriever:
 
     def score_with_colbert(self, query, doc_embed):
         query_embeddings = self.encode([query]).squeeze(0)
-        print(query_embeddings)
-        print('AAAAAAAAA')
 
         # Рассчитываем косинусное сходство между каждым токеном в запросе и каждом токеном в документе
         similarity_matrix = cosine_similarity(query_embeddings.unsqueeze(1), torch.tensor(doc_embed).float().unsqueeze(0))
-
-        print(similarity_matrix)
-        print('AAAAAAAAA')
 
         # Суммируем максимальные значения для каждого токена в запросе
         score = similarity_matrix.max(dim=1).values.sum().item()
@@ -80,21 +77,9 @@ class IndexerRetriever:
     def rerank_documents_with_colbert(self, query, doc_embeds_indices):
         # Скоринг документов
         scored_documents = [(self.documents[idx], self.score_with_colbert(query, doc_embed)) for doc_embed, idx in doc_embeds_indices]
-        for doc_embed, idx in doc_embeds_indices:
-            print(self.documents[idx])
-            print('пык')
-            print(self.encode([self.documents[idx]]).squeeze(0))
-            print('мык')
-            print(torch.tensor(doc_embed).float().unsqueeze(0))
-
-        print(scored_documents)
-        print('AAAAAAAAA')
 
         # Сортировка документов по убыванию скорингов
         scored_documents = sorted(scored_documents, key=lambda x: x[1], reverse=True)
-        print(scored_documents)
-        print('AAAAAAAAA')
-
         return scored_documents
 
 
@@ -118,11 +103,16 @@ if __name__ == "__main__":
     documents = load_documents_from_tsv('./collection50lines.tsv')
 
     indRetriever = IndexerRetriever(documents, model_name='./model')
+    faiss_index, document_embeddings = indRetriever.index_documents_with_faiss()
 
-    # faiss_index, document_embeddings = indRetriever.index_documents_with_faiss()
+    query = "what is The Manhattan Project"
+    _, top_k_embeds_indices = indRetriever.get_top_k_documents(query, top_k=10)
 
-    query = "what is the Manhattan Project"
-    top_k_embeds_indices = indRetriever.get_top_k_documents(query, top_k=10)
+    reranked_docs = indRetriever.rerank_documents_with_colbert(query, top_k_embeds_indices)
+
+    for doc, distance in reranked_docs:
+        print(f"Document: {doc} \nDistance: {distance}\n")
+
     # documents = load_documents_from_tsv('collection5mb.tsv')
     # colbert_model = ColBERT(model_name=namespace.checkpoint_path)
     # faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
