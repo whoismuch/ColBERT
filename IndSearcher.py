@@ -63,13 +63,11 @@ class IndexerRetriever:
     def score_with_colbert(self, query, doc_embed):
         query_embeddings = self.encode([query]).squeeze(0)
 
-        max_similarities = []
-        for query_emb in query_embeddings:
-            similarities = torch.matmul(torch.tensor(doc_embed).float(), query_emb.unsqueeze(1))
-            max_similarity = similarities.max().item()
-            max_similarities.append(max_similarity)
+        # Рассчитываем косинусное сходство между каждым токеном в запросе и каждом токеном в документе
+        similarity_matrix = cosine_similarity(query_embeddings.unsqueeze(1), doc_embed.unsqueeze(0))
 
-        score = sum(max_similarities)
+        # Суммируем максимальные значения для каждого токена в запросе
+        score = similarity_matrix.max(dim=1).values.sum().item()
 
         return score
 
