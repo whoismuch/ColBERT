@@ -3,6 +3,12 @@ from transformers import BertModel, BertTokenizer
 import numpy as np
 import faiss
 import os
+from torch.nn.functional import cosine_similarity
+import pandas as pd
+import random
+import sys
+import argparse
+
 
 class ColBERT:
     def __init__(self, model_name='bert-base-uncased'):
@@ -17,19 +23,23 @@ class ColBERT:
         return embeddings
 
 
-def index_documents_with_faiss(documents, colbert_model):
+def index_documents_with_faiss(documents, colbert_model, nlist=100, sample_ratio=0.1, m=8):
     all_embeddings = []
     for doc_text in documents:
         embeddings = colbert_model.encode([doc_text]).squeeze(0)
         all_embeddings.append(embeddings.mean(dim=0).numpy())  # Средний вектор документа
 
+    # Случайная выборка подмножества данных для обучения
+    num_samples = max(1, int(len(all_embeddings) * sample_ratio))
+    sampled_embeddings = random.sample(all_embeddings, num_samples)
+
     d = all_embeddings[0].shape[0]  # Размерность эмбеддингов
 
     quantizer = faiss.IndexFlatL2(d)  # Используется для кластеризации
-    index = faiss.IndexIVFFlat(quantizer, d, 100)  # nlist - количество кластеров
+    index = faiss.IndexIVFPQ(quantizer, d, nlist, m, 8)  # nlist - количество кластеров, m - количество подпространств
 
-    index.train(np.array(all_embeddings))  # Обучение кластеризатора
-    index.add(np.array(all_embeddings))
+    index.train(np.array(sampled_embeddings))  # Обучение кластеризатора на подмножестве данных
+    index.add(np.array(all_embeddings))  # Добавление всех данных в индекс
 
     return index, np.array(all_embeddings)
 
@@ -46,17 +56,54 @@ def get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=2):
     return top_k_docs
 
 
+def score_with_colbert(query, document, colbert_model):
+    # Кодируем запрос и документ
+    query_embeddings = colbert_model.encode([query]).squeeze(0)
+    doc_embeddings = colbert_model.encode([document]).squeeze(0)
+
+    # Рассчитываем косинусное сходство между каждым токеном в запросе и каждом токеном в документе
+    similarity_matrix = cosine_similarity(query_embeddings.unsqueeze(1), doc_embeddings.unsqueeze(0))
+
+    # Суммируем максимальные значения для каждого токена в запросе
+    scores = similarity_matrix.max(dim=1).values.sum().item()
+
+    return scores
+
+
+def rerank_documents_with_colbert(query, documents, colbert_model):
+    # Скоринг документов
+    scored_documents = [(doc, score_with_colbert(query, doc, colbert_model)) for doc in documents]
+    # Сортировка документов по убыванию скорингов
+    scored_documents = sorted(scored_documents, key=lambda x: x[1], reverse=True)
+
+    return scored_documents
+
+
+def load_documents_from_tsv(file_path):
+    df = pd.read_csv(file_path, sep='\t', header=None)
+    documents = df[1].tolist()  # Второй столбец содержит тексты документов
+    return documents
+
+def createParser ():
+    parser = argparse.ArgumentParser()
+    parser.add_argument ('--collection_path', default='./collection5mb.tsv')
+
+    return parser
 if __name__ == "__main__":
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
-    documents = [
-        'The presence of communication amid scientific minds was equally important to the success of the Manhattan Project as scientific intellect was. The only cloud hanging over the impressive achievement of the atomic researchers and engineers is what their success truly meant; hundreds of thousands of innocent lives obliterated.',
-        'The Manhattan Project and its atomic bomb helped bring an end to World War II. Its legacy of peaceful uses of atomic energy continues to have an impact on history and science.',
-        'Essay on The Manhattan Project - The Manhattan Project The Manhattan Project was to see if making an atomic bomb possible. The success of this project would forever change the world forever making it known that something this powerful can be manmade.',
-        'The Manhattan Project was the name for a project conducted during World War II, to develop the first atomic bomb. It refers specifically to the period of the project from 194 â\x80¦ 2-1946 under the control of the U.S. Army Corps of Engineers, under the administration of General Leslie R. Groves.']
-    collection='./collection5mb.tsv'
+    parser = createParser()
+    namespace = parser.parse_args(sys.argv[1:])
+    collection = namespace.collection_path
+    documents = load_documents_from_tsv(collection)
     colbert_model = ColBERT(model_name='./model')
     faiss_index, document_embeddings = index_documents_with_faiss(documents, colbert_model)
     query = "test document"
-    top_k_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=2)
-    for doc, distance in top_k_docs:
+    preselected_docs = get_top_k_documents(query, documents, colbert_model, faiss_index, top_k=10)
+
+    # Извлечение текстов документов для точного скоринга
+    preselected_texts = [doc for doc, _ in preselected_docs]
+
+    reranked_docs = rerank_documents_with_colbert(query, preselected_texts, colbert_model)
+
+    for doc, distance in reranked_docs:
         print(f"Document: {doc} \nDistance: {distance}\n")
