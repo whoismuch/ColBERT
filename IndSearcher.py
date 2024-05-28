@@ -80,6 +80,13 @@ class IndexerRetriever:
     def rerank_documents_with_colbert(self, query, doc_embeds_indices):
         # Скоринг документов
         scored_documents = [(self.documents[idx], self.score_with_colbert(query, doc_embed)) for doc_embed, idx in doc_embeds_indices]
+        for doc_embed, idx in doc_embeds_indices:
+            print(self.documents[idx])
+            print('пык')
+            print(self.encode([self.documents[idx]]).squeeze(0))
+            print('мык')
+            print(doc_embed)
+
         print(scored_documents)
         print('AAAAAAAAA')
 
